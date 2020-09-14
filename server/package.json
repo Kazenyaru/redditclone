@@ -4,6 +4,7 @@
   "description": "Reddit Clone for learning pupose",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
     "watch": "tsc -w",
     "dev": "nodemon --exec ts-node src/index.ts",
     "start": "node dist/index.js",
