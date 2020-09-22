@@ -11,6 +11,8 @@ import {
 import { MyContext } from "src/types";
 import { UserEntity } from "../entities/UserEntity";
 import argon2 from "argon2";
+import { EntityManager } from "@mikro-orm/postgresql";
+import { COOKIE_NAME } from "../constants";
 
 @InputType()
 class UsernamePasswordInput {
@@ -41,12 +43,18 @@ class UserResponse {
 export class UserResolver {
   @Query(() => UserEntity, { nullable: true })
   async me(@Ctx() { em, req }: MyContext) {
+    console.log(req.session!.userId);
     if (!req.session!.userId) {
       return null;
     }
 
     const user = await em.findOne(UserEntity, { id: req.session!.userId });
     return user;
+  }
+
+  @Query(() => [UserEntity], { nullable: true })
+  async users(@Ctx() { em }: MyContext): Promise<UserEntity[]> {
+    return em.find(UserEntity, {});
   }
 
   @Mutation(() => UserResponse)
@@ -77,15 +85,21 @@ export class UserResolver {
     }
 
     const hashedPassword = await argon2.hash(option.password);
-
-    const user = em.create(UserEntity, {
-      username: option.username,
-      password: hashedPassword,
-    });
-
+    let user;
     try {
-      await em.persistAndFlush(user);
+      const result = await (em as EntityManager)
+        .createQueryBuilder(UserEntity)
+        .getKnexQuery()
+        .insert({
+          username: option.username,
+          password: hashedPassword,
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        .returning("*");
+      user = result[0];
     } catch (error) {
+      console.log(error);
       if (error.code === "23505") {
         return {
           errors: [
@@ -96,10 +110,10 @@ export class UserResolver {
           ],
         };
       }
-      console.log("message: " + error.message);
     }
 
     req.session!.userId = user.id;
+    console.log(req.session!.userid + "" + user.id);
 
     return { user };
   }
@@ -133,9 +147,25 @@ export class UserResolver {
     }
 
     req.session!.userId = user.id;
+    console.log(req.session!.userid + "" + user.id);
 
     return {
       user,
     };
+  }
+
+  @Mutation(() => Boolean)
+  logout(@Ctx() { req, res }: MyContext) {
+    return new Promise((resolve) =>
+      req.session?.destroy((err) => {
+        res.clearCookie(COOKIE_NAME);
+        if (err) {
+          console.log(err);
+          resolve(false);
+          return;
+        }
+        resolve(true);
+      })
+    );
   }
 }
